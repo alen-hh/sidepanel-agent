@@ -9,14 +9,17 @@ import "globals.css"
 
 interface ApiKeys {
   openrouterKey: string
+  openrouterModel: string
   tavilyKey: string
 }
 
+const DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
 const STORAGE_KEY = "apiKeys"
 
 function useApiKeys() {
   const [keys, setKeys] = useState<ApiKeys>({
     openrouterKey: "",
+    openrouterModel: DEFAULT_MODEL,
     tavilyKey: ""
   })
   const [loaded, setLoaded] = useState(false)
@@ -24,7 +27,11 @@ function useApiKeys() {
   useEffect(() => {
     chrome.storage.sync.get(STORAGE_KEY, (result) => {
       if (result[STORAGE_KEY]) {
-        setKeys(result[STORAGE_KEY])
+        setKeys({
+          openrouterKey: result[STORAGE_KEY].openrouterKey || "",
+          openrouterModel: result[STORAGE_KEY].openrouterModel || DEFAULT_MODEL,
+          tavilyKey: result[STORAGE_KEY].tavilyKey || ""
+        })
       }
       setLoaded(true)
     })
@@ -46,7 +53,7 @@ function KeyInput({
   onChange
 }: {
   label: string
-  description: string
+  description: React.ReactNode
   placeholder: string
   value: string
   onChange: (v: string) => void
@@ -85,6 +92,7 @@ function OptionsPage() {
   const { keys, loaded, saveKeys } = useApiKeys()
   const [form, setForm] = useState<ApiKeys>({
     openrouterKey: "",
+    openrouterModel: DEFAULT_MODEL,
     tavilyKey: ""
   })
   const [saved, setSaved] = useState(false)
@@ -129,11 +137,27 @@ function OptionsPage() {
           </div>
           <KeyInput
             label="OpenRouter API Key"
-            description="Used to call AI models. Get yours at openrouter.ai/settings/keys"
+            description={<>Used to call AI models. Get yours at <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer" className="underline hover:text-foreground">openrouter.ai/settings/keys</a></>}
             placeholder="sk-or-v1-..."
             value={form.openrouterKey}
             onChange={(v) => setForm((f) => ({ ...f, openrouterKey: v }))}
           />
+          <div className="space-y-2">
+            <Label htmlFor="model-id">OpenRouter Model ID</Label>
+            <p className="text-xs text-muted-foreground">
+              OpenRouter model identifier. Browse models at{" "}
+              <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer" className="underline hover:text-foreground">openrouter.ai/models</a>
+            </p>
+            <Input
+              id="model-id"
+              type="text"
+              placeholder={DEFAULT_MODEL}
+              value={form.openrouterModel}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, openrouterModel: e.target.value }))
+              }
+            />
+          </div>
         </div>
 
         <div className="space-y-4 rounded-xl border p-6">
@@ -143,7 +167,7 @@ function OptionsPage() {
           </div>
           <KeyInput
             label="Tavily API Key"
-            description="Used for web search and page extraction tools. Get yours at app.tavily.com"
+            description={<>Used for web search and page extraction tools. Get yours at <a href="https://app.tavily.com" target="_blank" rel="noreferrer" className="underline hover:text-foreground">app.tavily.com</a></>}
             placeholder="tvly-..."
             value={form.tavilyKey}
             onChange={(v) => setForm((f) => ({ ...f, tavilyKey: v }))}

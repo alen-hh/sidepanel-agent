@@ -28,7 +28,7 @@ marked.setOptions({
   breaks: true
 })
 
-const MODEL = "stepfun/step-3.5-flash:free"
+const DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
 
 function createClient(apiKey: string) {
   return new OpenAI({
@@ -44,6 +44,7 @@ function createClient(apiKey: string) {
 
 async function loadApiKeys(): Promise<{
   openrouterKey: string
+  openrouterModel: string
   tavilyKey: string
 }> {
   return new Promise((resolve) => {
@@ -51,6 +52,7 @@ async function loadApiKeys(): Promise<{
       const stored = result.apiKeys || {}
       resolve({
         openrouterKey: stored.openrouterKey || "",
+        openrouterModel: stored.openrouterModel || DEFAULT_MODEL,
         tavilyKey: stored.tavilyKey || ""
       })
     })
@@ -229,6 +231,7 @@ const MAX_TOOL_ROUNDS = 6
 async function* streamChat(
   messages: Message[],
   openrouterKey: string,
+  openrouterModel: string,
   tavilyKey: string
 ): AsyncGenerator<StreamEvent> {
   const client = createClient(openrouterKey)
@@ -242,7 +245,7 @@ async function* streamChat(
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const stream = await client.chat.completions.create({
-      model: MODEL,
+      model: openrouterModel,
       messages: apiMessages,
       tools,
       stream: true
@@ -452,12 +455,11 @@ function MessageBubble({
                 <div className="whitespace-pre-wrap break-words">
                   {message.content}
                 </div>
+              ) : isStreaming && !hasContent ? (
+                <Loader2 className="h-4 w-4 animate-spin opacity-50" />
               ) : (
                 <div className="markdown-body min-w-0 break-words overflow-hidden">
                   <RenderedMarkdown content={message.content} />
-                  {isStreaming && (
-                    <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current opacity-70" />
-                  )}
                 </div>
               )}
             </div>
@@ -476,6 +478,7 @@ function SidePanelChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [apiKeys, setApiKeys] = useState({
     openrouterKey: "",
+    openrouterModel: DEFAULT_MODEL,
     tavilyKey: ""
   })
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -490,6 +493,8 @@ function SidePanelChat() {
       if (area === "sync" && changes.apiKeys?.newValue) {
         setApiKeys({
           openrouterKey: changes.apiKeys.newValue.openrouterKey || "",
+          openrouterModel:
+            changes.apiKeys.newValue.openrouterModel || DEFAULT_MODEL,
           tavilyKey: changes.apiKeys.newValue.tavilyKey || ""
         })
       }
@@ -539,6 +544,7 @@ function SidePanelChat() {
       for await (const event of streamChat(
         updatedMessages,
         apiKeys.openrouterKey,
+        apiKeys.openrouterModel,
         apiKeys.tavilyKey
       )) {
         switch (event.type) {
@@ -655,8 +661,8 @@ function SidePanelChat() {
           </div>
           <div>
             <h1 className="text-sm font-semibold">Sidepanel Agent</h1>
-            <p className="text-xs text-muted-foreground">
-              stepfun/step-3.5-flash
+            <p className="max-w-[160px] truncate text-xs text-muted-foreground" title={apiKeys.openrouterModel}>
+              {apiKeys.openrouterModel}
             </p>
           </div>
         </div>
@@ -694,6 +700,31 @@ function SidePanelChat() {
               Ask me anything — I can search the web, read pages, and help
               with browsing, writing, coding, and more.
             </p>
+
+            {(!apiKeys.openrouterKey || !apiKeys.tavilyKey) && (
+              <div className="mt-6 w-full max-w-[280px] space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-xs dark:border-amber-800 dark:bg-amber-950">
+                {!apiKeys.openrouterKey && (
+                  <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>OpenRouter API Key not configured — unable to chat with the Agent.</span>
+                  </div>
+                )}
+                {!apiKeys.tavilyKey && (
+                  <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>Tavily API Key not configured — web search and page extraction tools are unavailable.</span>
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => chrome.runtime.openOptionsPage()}
+                  className="mt-1 w-full border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900">
+                  <Settings className="h-3.5 w-3.5" />
+                  Open Settings
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           messages.map((msg, i) => (

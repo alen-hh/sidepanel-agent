@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Bot,
   Check,
+  Copy,
   FileText,
   KeyRound,
   Loader2,
@@ -358,6 +359,31 @@ function RenderedMarkdown({ content }: { content: string }) {
   return <div dangerouslySetInnerHTML={{ __html: html }} />
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }, [text])
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+      title="Copy">
+      {copied ? (
+        <Check className="h-3 w-3 text-emerald-500" />
+      ) : (
+        <Copy className="h-3 w-3" />
+      )}
+    </button>
+  )
+}
+
 function MessageBubble({
   message,
   isStreaming
@@ -370,7 +396,7 @@ function MessageBubble({
   const hasContent = message.content.length > 0
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-3`}>
+    <div className={`group flex ${isUser ? "justify-end" : "justify-start"} mb-3`}>
       <div
         className={`flex max-w-[calc(100%-2.5rem)] gap-2 ${isUser ? "flex-row-reverse" : "flex-row"} min-w-0`}>
         <div
@@ -464,6 +490,10 @@ function MessageBubble({
               )}
             </div>
           ) : null}
+
+          {!isUser && hasContent && !isStreaming && message.content !== "__MISSING_LLM_KEY__" && (
+            <CopyButton text={message.content} />
+          )}
         </div>
       </div>
     </div>

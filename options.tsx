@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Bot, CheckCircle, Eye, EyeOff, Search, Settings, Wrench } from "lucide-react"
+import { Bot, CheckCircle, Eye, EyeOff, Github, Search, Settings, Wrench } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -117,16 +117,26 @@ function OptionsPage() {
 
   return (
     <div className="mx-auto max-w-lg px-6 py-10">
-      <div className="mb-8 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-          <Settings className="h-5 w-5" />
+      <div className="mb-8 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <Settings className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold">Settings</h1>
+            <p className="text-xs text-muted-foreground">
+              Configure your API keys
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-lg font-semibold">Sidepanel Agent Settings</h1>
-          <p className="text-xs text-muted-foreground">
-            Configure your API keys
-          </p>
-        </div>
+        <a
+          href="https://github.com/alen-hh/sidepanel-agent"
+          target="_blank"
+          rel="noreferrer"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="GitHub">
+          <Github className="h-5 w-5" />
+        </a>
       </div>
 
       <div className="space-y-6">
@@ -143,7 +153,7 @@ function OptionsPage() {
             onChange={(v) => setForm((f) => ({ ...f, openrouterKey: v }))}
           />
           <div className="space-y-2">
-            <Label htmlFor="model-id">Model ID</Label>
+            <Label htmlFor="model-id">OpenRouter Model ID</Label>
             <p className="text-xs text-muted-foreground">
               OpenRouter model identifier. Browse models at{" "}
               <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer" className="underline hover:text-foreground">openrouter.ai/models</a>

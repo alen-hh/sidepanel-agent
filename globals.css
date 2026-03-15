@@ -41,6 +41,29 @@
   box-sizing: border-box;
 }
 
+/* ─── Thin scrollbar for textarea ─── */
+
+textarea::-webkit-scrollbar {
+  width: 4px;
+}
+
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+textarea::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+
+textarea::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+textarea::-webkit-scrollbar-button {
+  display: none;
+}
+
 /* ─── Markdown rendering inside chat bubbles ─── */
 
 .markdown-body {

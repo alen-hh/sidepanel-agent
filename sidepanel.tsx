@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  AlertCircle,
   Bot,
   Check,
   FileText,
+  KeyRound,
   Loader2,
+  RotateCw,
   Search,
   Send,
-  Trash2,
+  Settings,
   User
 } from "lucide-react"
 import { marked } from "marked"
@@ -26,18 +29,33 @@ marked.setOptions({
 })
 
 const MODEL = "stepfun/step-3.5-flash:free"
-const TAVILY_API_KEY = "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"
 
-const client = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey:
-    "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",
-  dangerouslyAllowBrowser: true,
-  defaultHeaders: {
-    "HTTP-Referer": "chrome-extension://sidepanel-agent",
-    "X-Title": "Sidepanel Agent"
-  }
-})
+function createClient(apiKey: string) {
+  return new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey,
+    dangerouslyAllowBrowser: true,
+    defaultHeaders: {
+      "HTTP-Referer": "chrome-extension://sidepanel-agent",
+      "X-Title": "Sidepanel Agent"
+    }
+  })
+}
+
+async function loadApiKeys(): Promise<{
+  openrouterKey: string
+  tavilyKey: string
+}> {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get("apiKeys", (result) => {
+      const stored = result.apiKeys || {}
+      resolve({
+        openrouterKey: stored.openrouterKey || "",
+        tavilyKey: stored.tavilyKey || ""
+      })
+    })
+  })
+}
 
 // ─── Tool definitions ───────────────────────────────────────────────
 
@@ -106,13 +124,14 @@ const tools: ChatCompletionTool[] = [
 // ─── Tavily API helpers ─────────────────────────────────────────────
 
 async function executeTavilySearch(
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  tavilyKey: string
 ): Promise<string> {
   const res = await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${TAVILY_API_KEY}`
+      Authorization: `Bearer ${tavilyKey}`
     },
     body: JSON.stringify({
       query: args.query,
@@ -136,13 +155,14 @@ async function executeTavilySearch(
 }
 
 async function executeTavilyExtract(
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  tavilyKey: string
 ): Promise<string> {
   const res = await fetch("https://api.tavily.com/extract", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${TAVILY_API_KEY}`
+      Authorization: `Bearer ${tavilyKey}`
     },
     body: JSON.stringify({
       urls: args.urls,
@@ -166,13 +186,14 @@ async function executeTavilyExtract(
 
 async function executeTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  tavilyKey: string
 ): Promise<string> {
   switch (name) {
     case "tavily_search":
-      return executeTavilySearch(args)
+      return executeTavilySearch(args, tavilyKey)
     case "tavily_extract":
-      return executeTavilyExtract(args)
+      return executeTavilyExtract(args, tavilyKey)
     default:
       return JSON.stringify({ error: `Unknown tool: ${name}` })
   }
@@ -182,13 +203,14 @@ async function executeTool(
 
 interface ToolCallInfo {
   name: string
-  status: "running" | "done"
+  status: "running" | "done" | "error"
 }
 
 type StreamEvent =
   | { type: "text"; delta: string }
   | { type: "tool_start"; name: string }
   | { type: "tool_end"; name: string }
+  | { type: "tool_error"; name: string }
 
 interface Message {
   role: "user" | "assistant" | "system"
@@ -205,8 +227,11 @@ const SYSTEM_PROMPT: ChatCompletionMessageParam = {
 const MAX_TOOL_ROUNDS = 6
 
 async function* streamChat(
-  messages: Message[]
+  messages: Message[],
+  openrouterKey: string,
+  tavilyKey: string
 ): AsyncGenerator<StreamEvent> {
+  const client = createClient(openrouterKey)
   const apiMessages: ChatCompletionMessageParam[] = [
     SYSTEM_PROMPT,
     ...messages.map(
@@ -270,10 +295,12 @@ async function* streamChat(
       yield { type: "tool_start", name: tc.name }
 
       let result: string
+      let failed = false
       try {
         const args = JSON.parse(tc.arguments)
-        result = await executeTool(tc.name, args)
+        result = await executeTool(tc.name, args, tavilyKey)
       } catch (err) {
+        failed = true
         result = JSON.stringify({
           error: err instanceof Error ? err.message : "Tool execution failed"
         })
@@ -285,7 +312,9 @@ async function* streamChat(
         content: result
       })
 
-      yield { type: "tool_end", name: tc.name }
+      yield failed
+        ? { type: "tool_error" as const, name: tc.name }
+        : { type: "tool_end" as const, name: tc.name }
     }
   }
 }
@@ -294,17 +323,19 @@ async function* streamChat(
 
 const TOOL_LABELS: Record<
   string,
-  { icon: typeof Search; running: string; done: string }
+  { icon: typeof Search; running: string; done: string; error: string }
 > = {
   tavily_search: {
     icon: Search,
     running: "Searching the web…",
-    done: "Web search done"
+    done: "Web search done",
+    error: "Search failed"
   },
   tavily_extract: {
     icon: FileText,
     running: "Reading page…",
-    done: "Page extracted"
+    done: "Page extracted",
+    error: "Extraction failed"
   }
 }
 
@@ -358,25 +389,59 @@ function MessageBubble({
               const label = TOOL_LABELS[tc.name] || {
                 icon: Search,
                 running: tc.name,
-                done: tc.name
+                done: tc.name,
+                error: `${tc.name} failed`
               }
               const Icon = label.icon
+              const statusIcon =
+                tc.status === "running" ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : tc.status === "error" ? (
+                  <AlertCircle className="h-3 w-3 text-red-500" />
+                ) : (
+                  <Check className="h-3 w-3 text-emerald-500" />
+                )
+              const statusText =
+                tc.status === "running"
+                  ? label.running
+                  : tc.status === "error"
+                    ? label.error
+                    : label.done
               return (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                  {tc.status === "running" ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Check className="h-3 w-3 text-emerald-500" />
-                  )}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs ${
+                    tc.status === "error"
+                      ? "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400"
+                      : "bg-muted text-muted-foreground"
+                  }`}>
+                  {statusIcon}
                   <Icon className="h-3 w-3" />
-                  {tc.status === "running" ? label.running : label.done}
+                  {statusText}
                 </span>
               )
             })}
 
-          {(hasContent || (isStreaming && !hasToolCalls)) && (
+          {!isUser && message.content === "__MISSING_LLM_KEY__" ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-sm dark:border-amber-800 dark:bg-amber-950">
+              <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-200">
+                <KeyRound className="h-4 w-4" />
+                LLM Provider API Key Required
+              </div>
+              <p className="text-amber-700 dark:text-amber-300">
+                Please configure your OpenRouter API Key in Settings before
+                starting a conversation.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => chrome.runtime.openOptionsPage()}
+                className="w-fit border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900">
+                <Settings className="h-3.5 w-3.5" />
+                Open Settings
+              </Button>
+            </div>
+          ) : (hasContent || (isStreaming && !hasToolCalls)) ? (
             <div
               className={`overflow-hidden rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                 isUser
@@ -396,7 +461,7 @@ function MessageBubble({
                 </div>
               )}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -409,8 +474,29 @@ function SidePanelChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [apiKeys, setApiKeys] = useState({
+    openrouterKey: "",
+    tavilyKey: ""
+  })
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    loadApiKeys().then(setApiKeys)
+    const listener = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string
+    ) => {
+      if (area === "sync" && changes.apiKeys?.newValue) {
+        setApiKeys({
+          openrouterKey: changes.apiKeys.newValue.openrouterKey || "",
+          tavilyKey: changes.apiKeys.newValue.tavilyKey || ""
+        })
+      }
+    }
+    chrome.storage.onChanged.addListener(listener)
+    return () => chrome.storage.onChanged.removeListener(listener)
+  }, [])
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -430,6 +516,18 @@ function SidePanelChat() {
     const updatedMessages = [...messages, userMessage]
     setMessages(updatedMessages)
     setInput("")
+
+    if (!apiKeys.openrouterKey) {
+      setMessages([
+        ...updatedMessages,
+        {
+          role: "assistant",
+          content: "__MISSING_LLM_KEY__"
+        }
+      ])
+      return
+    }
+
     setIsLoading(true)
 
     setMessages([...updatedMessages, { role: "assistant", content: "" }])
@@ -438,7 +536,11 @@ function SidePanelChat() {
       let fullContent = ""
       let activeToolCalls: ToolCallInfo[] = []
 
-      for await (const event of streamChat(updatedMessages)) {
+      for await (const event of streamChat(
+        updatedMessages,
+        apiKeys.openrouterKey,
+        apiKeys.tavilyKey
+      )) {
         switch (event.type) {
           case "text":
             fullContent += event.delta
@@ -485,6 +587,22 @@ function SidePanelChat() {
               }
             ])
             break
+
+          case "tool_error":
+            activeToolCalls = activeToolCalls.map((tc) =>
+              tc.name === event.name && tc.status === "running"
+                ? { ...tc, status: "error" as const }
+                : tc
+            )
+            setMessages([
+              ...updatedMessages,
+              {
+                role: "assistant",
+                content: fullContent,
+                toolCalls: [...activeToolCalls]
+              }
+            ])
+            break
         }
       }
 
@@ -507,9 +625,9 @@ function SidePanelChat() {
       ])
     } finally {
       setIsLoading(false)
-      inputRef.current?.focus()
+      requestAnimationFrame(() => inputRef.current?.focus())
     }
-  }, [input, isLoading, messages])
+  }, [input, isLoading, messages, apiKeys])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -542,14 +660,24 @@ function SidePanelChat() {
             </p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={clearChat}
-          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-          title="Clear chat">
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => chrome.runtime.openOptionsPage()}
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            title="Settings">
+            <Settings className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={clearChat}
+            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+            title="Clear Chat">
+            <RotateCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -584,7 +712,7 @@ function SidePanelChat() {
 
       {/* Input area */}
       <div className="border-t px-3 py-3">
-        <div className="flex items-end gap-2">
+        <div className="relative">
           <textarea
             ref={inputRef}
             value={input}
@@ -592,30 +720,22 @@ function SidePanelChat() {
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             disabled={isLoading}
-            rows={1}
-            className="max-h-32 min-h-[36px] flex-1 resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ height: "36px" }}
-            onInput={(e) => {
-              const target = e.target as HTMLTextAreaElement
-              target.style.height = "36px"
-              target.style.height = `${Math.min(target.scrollHeight, 128)}px`
-            }}
+            rows={3}
+            className="h-[72px] w-full resize-none rounded-xl border border-input bg-background px-3 pb-9 pt-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           />
           <Button
+            variant="ghost"
             size="icon"
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className="h-9 w-9 shrink-0 rounded-xl">
+            className="absolute bottom-2 right-2 h-7 w-7 rounded-lg text-primary hover:bg-primary/10 disabled:text-muted-foreground disabled:opacity-40">
             {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-5 w-5 animate-spin" />
             ) : (
-              <Send className="h-4 w-4" />
+              <Send className="h-5 w-5" />
             )}
           </Button>
         </div>
-        <p className="mt-1.5 text-center text-[10px] text-muted-foreground">
-          Powered by OpenRouter · stepfun/step-3.5-flash
-        </p>
       </div>
     </div>
   )

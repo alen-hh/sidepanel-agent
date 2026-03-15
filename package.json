@@ -42,7 +42,8 @@
       "https://*/*"
     ],
     "permissions": [
-      "sidePanel"
+      "sidePanel",
+      "storage"
     ],
     "action": {}
   }

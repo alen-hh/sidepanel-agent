@@ -38,11 +38,6 @@ export const getStyle = (): HTMLStyleElement => {
 }
 
 const CSUIExample = () => {
-  return (
-    <div className="flex w-[400px] flex-col border-2 bg-yellow-50">
-      <LoginForm />
-    </div>
-  )
 }
 
 export default CSUIExample

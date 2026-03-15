@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "chrome-extension-development": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "computedHash": "879436797b8c35a063dc89a04b4182975114c5baf9dbf692455b7ed164420f9e"
+    },
+    "plasmo-extension-architect": {
+      "source": "shipshitdev/library",
+      "sourceType": "github",
+      "computedHash": "2c9b9e1aea93393c5eac17a27194ab2bece0990bba206e765f571dc5a744b5ce"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "computedHash": "1d61d915437a447176ad9f1d7141f22b163265e64f9fac50267264674068099f"
+    }
+  }
+}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircle,
   Bot,
+  Brain,
   Check,
   Copy,
   FileText,
@@ -211,6 +212,8 @@ interface ToolCallInfo {
 
 type StreamEvent =
   | { type: "text"; delta: string }
+  | { type: "reasoning_start" }
+  | { type: "reasoning_end" }
   | { type: "tool_start"; name: string }
   | { type: "tool_end"; name: string }
   | { type: "tool_error"; name: string }
@@ -219,6 +222,7 @@ interface Message {
   role: "user" | "assistant" | "system"
   content: string
   toolCalls?: ToolCallInfo[]
+  reasoningStatus?: "thinking" | "done"
 }
 
 const SYSTEM_PROMPT: ChatCompletionMessageParam = {
@@ -233,6 +237,7 @@ async function* streamChat(
   messages: Message[],
   openrouterKey: string,
   openrouterModel: string,
+  reasoningEnabled: boolean,
   tavilyKey: string
 ): AsyncGenerator<StreamEvent> {
   const client = createClient(openrouterKey)
@@ -249,10 +254,13 @@ async function* streamChat(
       model: openrouterModel,
       messages: apiMessages,
       tools,
-      stream: true
-    })
+      stream: true,
+      ...(reasoningEnabled ? { reasoning: { enabled: true } } : {})
+    } as OpenAI.ChatCompletionCreateParamsStreaming)
 
     let contentAccum = ""
+    let reasoningStarted = false
+    let reasoningEnded = false
     const toolCallsMap = new Map<
       number,
       { id: string; name: string; arguments: string }
@@ -262,7 +270,19 @@ async function* streamChat(
       const choice = chunk.choices?.[0]
       if (!choice) continue
 
+      if (reasoningEnabled) {
+        const delta = choice.delta as Record<string, unknown>
+        if (delta?.reasoning && !reasoningStarted) {
+          reasoningStarted = true
+          yield { type: "reasoning_start" as const }
+        }
+      }
+
       if (choice.delta?.content) {
+        if (reasoningStarted && !reasoningEnded) {
+          reasoningEnded = true
+          yield { type: "reasoning_end" as const }
+        }
         contentAccum += choice.delta.content
         yield { type: "text", delta: choice.delta.content }
       }
@@ -281,6 +301,11 @@ async function* streamChat(
           toolCallsMap.set(tc.index, existing)
         }
       }
+    }
+
+    if (reasoningStarted && !reasoningEnded) {
+      reasoningEnded = true
+      yield { type: "reasoning_end" as const }
     }
 
     if (toolCallsMap.size === 0) break
@@ -413,6 +438,18 @@ function MessageBubble({
         </div>
 
         <div className="flex min-w-0 flex-col gap-1.5">
+          {message.reasoningStatus && (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+              {message.reasoningStatus === "thinking" ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Check className="h-3 w-3 text-emerald-500" />
+              )}
+              <Brain className="h-3 w-3" />
+              {message.reasoningStatus === "thinking" ? "Thinking…" : "Thought complete"}
+            </span>
+          )}
+
           {hasToolCalls &&
             message.toolCalls!.map((tc, i) => {
               const label = TOOL_LABELS[tc.name] || {
@@ -511,6 +548,7 @@ function SidePanelChat() {
     openrouterModel: DEFAULT_MODEL,
     tavilyKey: ""
   })
+  const [reasoningEnabled, setReasoningEnabled] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -570,14 +608,48 @@ function SidePanelChat() {
     try {
       let fullContent = ""
       let activeToolCalls: ToolCallInfo[] = []
+      let currentReasoningStatus: "thinking" | "done" | undefined
 
       for await (const event of streamChat(
         updatedMessages,
         apiKeys.openrouterKey,
         apiKeys.openrouterModel,
+        reasoningEnabled,
         apiKeys.tavilyKey
       )) {
         switch (event.type) {
+          case "reasoning_start":
+            currentReasoningStatus = "thinking"
+            setMessages([
+              ...updatedMessages,
+              {
+                role: "assistant",
+                content: fullContent,
+                toolCalls:
+                  activeToolCalls.length > 0
+                    ? [...activeToolCalls]
+                    : undefined,
+                reasoningStatus: "thinking"
+              }
+            ])
+            break
+
+          case "reasoning_end":
+            currentReasoningStatus = "done"
+            setMessages([
+              ...updatedMessages,
+              {
+                role: "assistant",
+                content: fullContent,
+                toolCalls:
+                  activeToolCalls.length > 0
+                    ? [...activeToolCalls]
+                    : undefined,
+                reasoningStatus: "done"
+              }
+            ])
+            break
+
           case "text":
             fullContent += event.delta
             setMessages([
@@ -588,7 +660,8 @@ function SidePanelChat() {
                 toolCalls:
                   activeToolCalls.length > 0
                     ? [...activeToolCalls]
-                    : undefined
+                    : undefined,
+                reasoningStatus: currentReasoningStatus
               }
             ])
             break
@@ -603,7 +676,8 @@ function SidePanelChat() {
               {
                 role: "assistant",
                 content: fullContent,
-                toolCalls: [...activeToolCalls]
+                toolCalls: [...activeToolCalls],
+                reasoningStatus: currentReasoningStatus
               }
             ])
             break
@@ -619,7 +693,8 @@ function SidePanelChat() {
               {
                 role: "assistant",
                 content: fullContent,
-                toolCalls: [...activeToolCalls]
+                toolCalls: [...activeToolCalls],
+                reasoningStatus: currentReasoningStatus
               }
             ])
             break
@@ -635,7 +710,8 @@ function SidePanelChat() {
               {
                 role: "assistant",
                 content: fullContent,
-                toolCalls: [...activeToolCalls]
+                toolCalls: [...activeToolCalls],
+                reasoningStatus: currentReasoningStatus
               }
             ])
             break
@@ -663,7 +739,7 @@ function SidePanelChat() {
       setIsLoading(false)
       requestAnimationFrame(() => inputRef.current?.focus())
     }
-  }, [input, isLoading, messages, apiKeys])
+  }, [input, isLoading, messages, apiKeys, reasoningEnabled])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -782,20 +858,34 @@ function SidePanelChat() {
             placeholder="Type a message..."
             disabled={isLoading}
             rows={3}
-            className="h-[72px] w-full resize-none rounded-xl border border-input bg-background px-3 pb-9 pt-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-[120px] w-full resize-none rounded-xl border border-input bg-background px-3 pb-11 pt-2.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={sendMessage}
-            disabled={!input.trim() || isLoading}
-            className="absolute bottom-2 right-2 h-7 w-7 rounded-lg text-primary hover:bg-primary/10 disabled:text-muted-foreground disabled:opacity-40">
-            {isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Send className="h-5 w-5" />
-            )}
-          </Button>
+          <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setReasoningEnabled((v) => !v)}
+              disabled={isLoading}
+              className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                reasoningEnabled
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-transparent text-muted-foreground hover:bg-muted"
+              }`}>
+              <Brain className="h-3.5 w-3.5" />
+              Thinking
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={sendMessage}
+              disabled={!input.trim() || isLoading}
+              className="h-7 w-7 rounded-lg text-primary hover:bg-primary/10 disabled:text-muted-foreground disabled:opacity-40">
+              {isLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Send className="h-5 w-5" />
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

@@ -143,7 +143,7 @@ function OptionsPage() {
             onChange={(v) => setForm((f) => ({ ...f, openrouterKey: v }))}
           />
           <div className="space-y-2">
-            <Label htmlFor="model-id">OpenRouter Model ID</Label>
+            <Label htmlFor="model-id">Model ID</Label>
             <p className="text-xs text-muted-foreground">
               OpenRouter model identifier. Browse models at{" "}
               <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer" className="underline hover:text-foreground">openrouter.ai/models</a>

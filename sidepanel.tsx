@@ -6,13 +6,15 @@ import {
   Check,
   Copy,
   FileText,
+  Globe,
   KeyRound,
   Loader2,
   RotateCw,
   Search,
   Send,
   Settings,
-  User
+  User,
+  X
 } from "lucide-react"
 import { marked } from "marked"
 import OpenAI from "openai"
@@ -218,11 +220,19 @@ type StreamEvent =
   | { type: "tool_end"; name: string }
   | { type: "tool_error"; name: string }
 
+interface PageContext {
+  content: string
+  title: string
+  favicon: string
+  url: string
+}
+
 interface Message {
   role: "user" | "assistant" | "system"
   content: string
   toolCalls?: ToolCallInfo[]
   reasoningStatus?: "thinking" | "done"
+  pageContext?: { title: string; favicon: string; url: string }
 }
 
 const SYSTEM_PROMPT: ChatCompletionMessageParam = {
@@ -488,6 +498,19 @@ function MessageBubble({
               )
             })}
 
+          {isUser && message.pageContext && (
+            <div className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+              {message.pageContext.favicon ? (
+                <img src={message.pageContext.favicon} alt="" className="h-3.5 w-3.5 rounded-sm" />
+              ) : (
+                <Globe className="h-3.5 w-3.5" />
+              )}
+              <span className="max-w-[180px] truncate" title={message.pageContext.title}>
+                {message.pageContext.title}
+              </span>
+            </div>
+          )}
+
           {!isUser && message.content === "__MISSING_LLM_KEY__" ? (
             <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-sm dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-200">
@@ -516,7 +539,9 @@ function MessageBubble({
               }`}>
               {isUser ? (
                 <div className="whitespace-pre-wrap break-words">
-                  {message.content}
+                  {message.pageContext
+                    ? message.content.replace(/^```\n<page_content>\n[\s\S]*?\n<\/page_content>\n```\n/, "")
+                    : message.content}
                 </div>
               ) : isStreaming && !hasContent ? (
                 <Loader2 className="h-4 w-4 animate-spin opacity-50" />
@@ -549,6 +574,8 @@ function SidePanelChat() {
     tavilyKey: ""
   })
   const [reasoningEnabled, setReasoningEnabled] = useState(false)
+  const [pageContext, setPageContext] = useState<PageContext | null>(null)
+  const [isReadingPage, setIsReadingPage] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -581,14 +608,60 @@ function SidePanelChat() {
     scrollToBottom()
   }, [messages, scrollToBottom])
 
+  const readCurrentPage = useCallback(async () => {
+    if (isReadingPage) return
+    setIsReadingPage(true)
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab?.id || !tab.url) return
+
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const clone = document.body.cloneNode(true) as HTMLElement
+          clone.querySelectorAll("script, style, link[rel='stylesheet'], noscript").forEach((el) => el.remove())
+          return clone.innerText.replace(/\n{3,}/g, "\n\n").trim()
+        }
+      })
+
+      const text = results?.[0]?.result
+      if (text) {
+        setPageContext({
+          content: text,
+          title: tab.title || tab.url,
+          favicon: tab.favIconUrl || "",
+          url: tab.url
+        })
+      }
+    } catch (err) {
+      console.error("Failed to read page:", err)
+    } finally {
+      setIsReadingPage(false)
+    }
+  }, [isReadingPage])
+
   const sendMessage = useCallback(async () => {
     const text = input.trim()
     if (!text || isLoading) return
 
-    const userMessage: Message = { role: "user", content: text }
+    const fullContent = pageContext
+      ? `\`\`\`\n<page_content>\n${pageContext.content}\n</page_content>\n\`\`\`\n${text}`
+      : text
+    const userMessage: Message = {
+      role: "user",
+      content: fullContent,
+      ...(pageContext && {
+        pageContext: {
+          title: pageContext.title,
+          favicon: pageContext.favicon,
+          url: pageContext.url
+        }
+      })
+    }
     const updatedMessages = [...messages, userMessage]
     setMessages(updatedMessages)
     setInput("")
+    setPageContext(null)
 
     if (!apiKeys.openrouterKey) {
       setMessages([
@@ -739,7 +812,7 @@ function SidePanelChat() {
       setIsLoading(false)
       requestAnimationFrame(() => inputRef.current?.focus())
     }
-  }, [input, isLoading, messages, apiKeys, reasoningEnabled])
+  }, [input, isLoading, messages, apiKeys, reasoningEnabled, pageContext])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -850,6 +923,44 @@ function SidePanelChat() {
       {/* Input area */}
       <div className="border-t px-3 py-3">
         <div className="relative">
+          {/* Read-page button */}
+          <div className="mb-2">
+            <button
+              type="button"
+              onClick={readCurrentPage}
+              disabled={isLoading || isReadingPage}
+              className="flex items-center gap-1 rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              title="Read current page as context">
+              {isReadingPage ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Globe className="h-3.5 w-3.5" />
+              )}
+              Read Page
+            </button>
+          </div>
+
+          {/* Page context widget */}
+          {pageContext && (
+            <div className="mb-2 flex w-full items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-xs text-primary">
+              {pageContext.favicon ? (
+                <img src={pageContext.favicon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm" />
+              ) : (
+                <Globe className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <span className="min-w-0 truncate" title={pageContext.title}>
+                {pageContext.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPageContext(null)}
+                className="ml-auto shrink-0 rounded-full p-0.5 hover:bg-primary/10"
+                title="Remove page context">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+
           <textarea
             ref={inputRef}
             value={input}

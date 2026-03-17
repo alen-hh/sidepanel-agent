@@ -1,0 +1,11 @@
+---
+description: Language convention - English for code, Chinese for communication
+alwaysApply: true
+---
+
+# Language Convention
+
+- **Code**: All code, variable names, function names, class names, and file names MUST be in English.
+- **Comments**: Code comments MUST be written in English.
+- **Commit messages**: Git commit messages MUST be in English.
+- **Communication**: All responses, explanations, and discussions with the developer MUST be in Chinese (简体中文).

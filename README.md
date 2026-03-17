@@ -6,8 +6,9 @@ A Chrome extension that puts a conversational AI assistant in your browser's sid
 
 - **Side Panel Chat** — Click the extension icon to open an AI chat in the browser side panel
 - **Streaming Responses** — Real-time streaming output with Markdown rendering (code blocks, tables, lists, etc.)
+- **Page Context** — Read the current tab's page content as context for your message. The text is extracted from the page body (HTML/CSS/JS tags stripped), displayed as a compact widget showing the page's favicon and title, and automatically included in the user message sent to the model
 - **Web Search** — Built-in Tavily search tool for real-time web information
-- **Page Extraction** — Extract and read full content from any web page URL
+- **Page Extraction** — Extract and read full content from any web page URL via the Tavily tool
 - **Reasoning Mode** — Toggle "Thinking" to enable extended reasoning for complex tasks
 - **Configurable** — Choose any model available on OpenRouter, configure API keys in the options page
 - **Copy Messages** — One-click copy of raw Markdown content from assistant responses

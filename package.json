@@ -1,7 +1,7 @@
 {
   "name": "sidepanel-agent",
   "displayName": "Sidepanel Agent",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "An AI Agent in your browser's sidepanel.",
   "author": "Alen Hu <huhaoyue0220@gmail.com>",
   "scripts": {
@@ -44,7 +44,9 @@
     ],
     "permissions": [
       "sidePanel",
-      "storage"
+      "storage",
+      "activeTab",
+      "scripting"
     ],
     "action": {}
   }

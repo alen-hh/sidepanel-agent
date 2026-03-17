@@ -1,0 +1,29 @@
+---
+description: Check and update README.md after making changes
+alwaysApply: true
+---
+
+# Keep README Up to Date
+
+After completing any code changes, review whether the README.md needs to be updated.
+
+## When to Update
+
+- New features or functionality added
+- Existing features modified or removed
+- Configuration, setup steps, or dependencies changed
+- API or usage instructions affected
+- Project structure changed (new files/folders)
+
+## When NOT to Update
+
+- Pure refactors with no behavioral change
+- Bug fixes that don't affect documented behavior
+- Internal implementation details not mentioned in README
+
+## Process
+
+1. Read the current README.md
+2. Compare against the changes just made
+3. If any documented content is now outdated or incomplete, update the relevant sections
+4. Keep the same style and structure as the existing README

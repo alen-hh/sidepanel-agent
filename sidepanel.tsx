@@ -15,6 +15,7 @@ import {
   Send,
   Settings,
   Command,
+  TextCursor,
   User,
   X
 } from "lucide-react"
@@ -230,6 +231,12 @@ interface PageContext {
   url: string
 }
 
+interface SelectedTextContext {
+  content: string
+  title?: string
+  url?: string
+}
+
 interface Message {
   role: "user" | "assistant" | "system"
   content: string
@@ -237,6 +244,7 @@ interface Message {
   reasoningStatus?: "thinking" | "done"
   pageContext?: { title: string; favicon: string; url: string }
   uploadedDoc?: { name: string }
+  selectedText?: { content: string }
 }
 
 const SYSTEM_PROMPT: ChatCompletionMessageParam = {
@@ -248,6 +256,7 @@ const SYSTEM_PROMPT: ChatCompletionMessageParam = {
 const MAX_TOOL_ROUNDS = 6
 const MAX_UPLOAD_DOC_BYTES = 2 * 1024 * 1024
 const MAX_UPLOAD_DOC_CHARS = 120_000
+const MAX_SELECTED_TEXT_CHARS = 8_000
 const SUPPORTED_UPLOAD_DOC_EXTENSIONS = [".txt", ".md", ".doc", ".docx"] as const
 const SUPPORTED_UPLOAD_DOC_ACCEPT = SUPPORTED_UPLOAD_DOC_EXTENSIONS.join(",")
 
@@ -258,9 +267,18 @@ function getFileExtension(fileName: string) {
 
 function stripLeadingUserContexts(content: string) {
   return content.replace(
-    /^(?:```(?:\r?\n)?(?:page content:|uploaded doc:)\r?\n[\s\S]*?\r?\n```\r?\n\r?\n?)*/,
+    /^(?:```(?:\r?\n)?(?:page content:|uploaded doc:|selected text:)\r?\n[\s\S]*?\r?\n```\r?\n\r?\n?)*/,
     ""
   )
+}
+
+function normalizeSelectedText(content: string) {
+  const normalized = content.replace(/\s+/g, " ").trim()
+  if (!normalized) return ""
+  if (normalized.length > MAX_SELECTED_TEXT_CHARS) {
+    return `${normalized.slice(0, MAX_SELECTED_TEXT_CHARS)}...[truncated]`
+  }
+  return normalized
 }
 
 async function* streamChat(
@@ -538,6 +556,14 @@ function MessageBubble({
               </span>
             </div>
           )}
+          {isUser && message.selectedText && (
+            <div className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+              <TextCursor className="h-3.5 w-3.5" />
+              <span className="max-w-[180px] truncate" title={message.selectedText.content}>
+                {message.selectedText.content}
+              </span>
+            </div>
+          )}
 
           {!isUser && message.content === "__MISSING_LLM_KEY__" ? (
             <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-sm dark:border-amber-800 dark:bg-amber-950">
@@ -593,6 +619,7 @@ function MessageBubble({
 function SidePanelChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
+  const [selectedTextContext, setSelectedTextContext] = useState<SelectedTextContext | null>(null)
   const [uploadedDoc, setUploadedDoc] = useState<{
     name: string
     content: string
@@ -629,6 +656,36 @@ function SidePanelChat() {
     }
     chrome.storage.onChanged.addListener(listener)
     return () => chrome.storage.onChanged.removeListener(listener)
+  }, [])
+
+  useEffect(() => {
+    const listener = (
+      message: unknown,
+      _sender: chrome.runtime.MessageSender,
+      _sendResponse: (response?: unknown) => void
+    ) => {
+      if (!message || typeof message !== "object") return
+      const payload = message as {
+        type?: string
+        text?: string
+        title?: string
+        url?: string
+      }
+      if (payload.type !== "SIDEPANEL_SELECTED_TEXT") return
+      if (typeof payload.text !== "string") return
+
+      const normalized = normalizeSelectedText(payload.text)
+      if (!normalized) return
+
+      setSelectedTextContext({
+        content: normalized,
+        title: payload.title,
+        url: payload.url
+      })
+    }
+
+    chrome.runtime.onMessage.addListener(listener)
+    return () => chrome.runtime.onMessage.removeListener(listener)
   }, [])
 
   const scrollToBottom = useCallback(() => {
@@ -764,6 +821,9 @@ function SidePanelChat() {
     if (uploadedDoc) {
       contexts.push(`\`\`\`\nuploaded doc:\n${uploadedDoc.content}\n\`\`\``)
     }
+    if (selectedTextContext) {
+      contexts.push(`\`\`\`\nselected text:\n${selectedTextContext.content}\n\`\`\``)
+    }
     const fullContent = contexts.length ? `${contexts.join("\n\n")}\n\n${text}` : text
     const userMessage: Message = {
       role: "user",
@@ -779,6 +839,11 @@ function SidePanelChat() {
         uploadedDoc: {
           name: uploadedDoc.name
         }
+      }),
+      ...(selectedTextContext && {
+        selectedText: {
+          content: selectedTextContext.content
+        }
       })
     }
     const updatedMessages = [...messages, userMessage]
@@ -786,6 +851,7 @@ function SidePanelChat() {
     setInput("")
     setPageContext(null)
     setUploadedDoc(null)
+    setSelectedTextContext(null)
 
     if (!apiKeys.openrouterKey) {
       setMessages([
@@ -936,7 +1002,7 @@ function SidePanelChat() {
       setIsLoading(false)
       requestAnimationFrame(() => inputRef.current?.focus())
     }
-  }, [input, isLoading, messages, apiKeys, reasoningEnabled, pageContext, uploadedDoc])
+  }, [input, isLoading, messages, apiKeys, reasoningEnabled, pageContext, uploadedDoc, selectedTextContext])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1103,6 +1169,23 @@ function SidePanelChat() {
                 onClick={() => setUploadedDoc(null)}
                 className="ml-auto shrink-0 rounded-full p-0.5 hover:bg-primary/10"
                 title="Remove uploaded document">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          {selectedTextContext && (
+            <div className="mb-2 flex w-full items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-xs text-primary">
+              <TextCursor className="h-3.5 w-3.5 shrink-0" />
+              <span
+                className="min-w-0 truncate"
+                title={selectedTextContext.content}>
+                {selectedTextContext.content}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedTextContext(null)}
+                className="ml-auto shrink-0 rounded-full p-0.5 hover:bg-primary/10"
+                title="Remove selected text context">
                 <X className="h-3 w-3" />
               </button>
             </div>

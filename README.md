@@ -7,6 +7,7 @@ A Chrome extension that puts a conversational AI assistant in your browser's sid
 - **Side Panel Chat** — Click the extension icon to open an AI chat in the browser side panel
 - **Streaming Responses** — Real-time streaming output with Markdown rendering (code blocks, tables, lists, etc.)
 - **Page Context** — Read the current tab's page content as context for your message. The text is extracted from the page body (HTML/CSS/JS tags stripped), displayed as a compact widget showing the page's favicon and title, and automatically included in the user message sent to the model
+- **Selected Text Context** — Highlight text on any page to automatically capture it as message context; new selections replace previous ones so only the latest selected snippet is used
 - **Document Context Upload** — Upload one local document (`.txt`, `.md`, `.doc`, `.docx`, max 2MB), extract readable text, and include it as additional context in your next user message
 - **Web Search** — Built-in Tavily search tool for real-time web information
 - **Page Extraction** — Extract and read full content from any web page URL via the Tavily tool

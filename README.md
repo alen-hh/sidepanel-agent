@@ -61,6 +61,12 @@ Click the ⚙️ settings icon in the side panel header (or right-click the exte
 
 - **Tavily API Key** — Optional. Enables web search and page extraction. Get one at [app.tavily.com](https://app.tavily.com)
 
+## Security and Usability
+
+- **No product account required** — You can use Sidepanel Agent directly with your own provider API keys, without registering or logging into a separate Sidepanel Agent account.
+- **Chrome account-level sync** — API keys and model settings are stored in `chrome.storage.sync`, so your configuration follows your signed-in Chrome profile across devices.
+- **No repeated setup on new devices** — When you switch to another device with the same Chrome account, your previously configured keys and settings are automatically available.
+
 ## Tech Stack
 
 - [Plasmo](https://docs.plasmo.com/) — Chrome Extension framework

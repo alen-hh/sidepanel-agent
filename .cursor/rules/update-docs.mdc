@@ -1,0 +1,41 @@
+---
+description: Check and update README.md and PRIVACY.md after making changes
+alwaysApply: true
+---
+
+# Keep README and PRIVACY Docs Up to Date
+
+After completing any code changes, review whether `README.md` and `PRIVACY.md` need to be updated.
+
+## When to Update README.md
+
+- New features or functionality added
+- Existing features modified or removed
+- Configuration, setup steps, or dependencies changed
+- API or usage instructions affected
+- Project structure changed (new files/folders)
+
+## When to Update PRIVACY.md
+
+- Browser permissions changed (added, removed, or modified)
+- `manifest` permission fields changed (`permissions`, `optional_permissions`, `host_permissions`, `optional_host_permissions`)
+- Data collection scope changed (what data is collected)
+- Data usage changed (why and how data is processed)
+- Data storage/retention changed (where and for how long)
+- Third-party services changed that may receive user data
+- User controls changed (opt-in/opt-out, deletion, access requests)
+
+## When NOT to Update
+
+- Pure refactors with no behavioral change
+- Bug fixes that don't affect documented behavior
+- Internal implementation details not mentioned in public docs
+
+## Process
+
+1. Read the current `README.md` and `PRIVACY.md`
+2. Compare both files against the changes just made
+3. If user-facing behavior/setup changed, update `README.md`
+4. If permissions/data practices changed, update `PRIVACY.md`
+5. If any `manifest` permission field changed, updating `PRIVACY.md` is mandatory (no exceptions)
+6. Keep each file consistent with its existing style and structure

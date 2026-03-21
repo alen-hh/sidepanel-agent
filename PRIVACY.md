@@ -39,6 +39,16 @@ The extension allows users to upload one local document (`.txt`, `.md`, `.doc`, 
 - Document files and extracted text are **not** sent to any server controlled by the extension developer
 - Uploaded document context is kept in memory only for the current side panel session unless removed earlier by the user
 
+### Selected Text Context
+
+When the user highlights text on a web page, the extension can capture the latest selected snippet and use it as optional chat context. Selected text behavior:
+
+- Only the most recent selected snippet is kept (new selections replace previous ones)
+- Selected text is attached to the user message only when the user explicitly sends that message
+- Selected text content is transmitted to `openrouter.ai` as part of the chat request when included by the user
+- Selected text is **not** sent to any server controlled by the extension developer
+- Selected text context is kept in memory only for the current side panel session unless removed earlier by the user
+
 ### Web Search and Page Extraction
 
 When the AI assistant uses the web search or page extraction tools, queries and URLs are sent directly from the user's browser to the Tavily API (`api.tavily.com`). This data is:
@@ -56,14 +66,15 @@ The extension requests the following Chrome permissions:
 
 - **`sidePanel`** — Required to display the chat interface in the browser's side panel.
 - **`storage`** — Required to persist user settings (API keys, model ID) across sessions using `chrome.storage.sync`.
-- **`activeTab`** — Required to access the currently active tab only after a user-initiated action (e.g., "Read Page") so the extension can capture page text as chat context.
-- **`scripting`** — Required to run a lightweight content-extraction script in the active tab when the user requests page context.
+- **`activeTab`** — Required to access the currently active tab only after user-initiated interactions so the extension can capture page context (such as "Read Page" text extraction) for chat.
+- **`scripting`** — Required to run lightweight page-side scripts for context features, including page text extraction and selected-text capture.
 - **`host_permissions` (`https://*/*`)** — Required to make API requests to OpenRouter (`openrouter.ai`) and Tavily (`api.tavily.com`) from the extension context.
 
 ## Data Retention
 
 - **Chat messages** are held in memory only and are not persisted. Closing the side panel or clicking "Clear Chat" permanently deletes all conversation data.
 - **Uploaded document context** is held in memory only for the active side panel session and is cleared after sending, removal, or panel close.
+- **Selected text context** is held in memory only for the active side panel session and is cleared after replacement, sending, removal, or panel close.
 - **API keys and settings** are stored in `chrome.storage.sync` until the user removes them or uninstalls the extension.
 
 ## Third-Party Services

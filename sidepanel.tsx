@@ -9,6 +9,7 @@ import {
   Globe,
   KeyRound,
   Loader2,
+  Paperclip,
   RotateCw,
   Search,
   Send,
@@ -17,6 +18,7 @@ import {
   User,
   X
 } from "lucide-react"
+import JSZip from "jszip"
 import { marked } from "marked"
 import OpenAI from "openai"
 import type {
@@ -234,6 +236,7 @@ interface Message {
   toolCalls?: ToolCallInfo[]
   reasoningStatus?: "thinking" | "done"
   pageContext?: { title: string; favicon: string; url: string }
+  uploadedDoc?: { name: string }
 }
 
 const SYSTEM_PROMPT: ChatCompletionMessageParam = {
@@ -243,6 +246,22 @@ const SYSTEM_PROMPT: ChatCompletionMessageParam = {
 }
 
 const MAX_TOOL_ROUNDS = 6
+const MAX_UPLOAD_DOC_BYTES = 2 * 1024 * 1024
+const MAX_UPLOAD_DOC_CHARS = 120_000
+const SUPPORTED_UPLOAD_DOC_EXTENSIONS = [".txt", ".md", ".doc", ".docx"] as const
+const SUPPORTED_UPLOAD_DOC_ACCEPT = SUPPORTED_UPLOAD_DOC_EXTENSIONS.join(",")
+
+function getFileExtension(fileName: string) {
+  const match = fileName.toLowerCase().match(/\.[^.]+$/)
+  return match ? match[0] : ""
+}
+
+function stripLeadingUserContexts(content: string) {
+  return content.replace(
+    /^(?:```(?:\r?\n)?(?:page content:|uploaded doc:)\r?\n[\s\S]*?\r?\n```\r?\n\r?\n?)*/,
+    ""
+  )
+}
 
 async function* streamChat(
   messages: Message[],
@@ -511,6 +530,14 @@ function MessageBubble({
               </span>
             </div>
           )}
+          {isUser && message.uploadedDoc && (
+            <div className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+              <FileText className="h-3.5 w-3.5" />
+              <span className="max-w-[180px] truncate" title={message.uploadedDoc.name}>
+                {message.uploadedDoc.name}
+              </span>
+            </div>
+          )}
 
           {!isUser && message.content === "__MISSING_LLM_KEY__" ? (
             <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-sm dark:border-amber-800 dark:bg-amber-950">
@@ -540,9 +567,7 @@ function MessageBubble({
               }`}>
               {isUser ? (
                 <div className="whitespace-pre-wrap break-words">
-                  {message.pageContext
-                    ? message.content.replace(/^```\n<page_content>\n[\s\S]*?\n<\/page_content>\n```\n/, "")
-                    : message.content}
+                  {stripLeadingUserContexts(message.content)}
                 </div>
               ) : isStreaming && !hasContent ? (
                 <Loader2 className="h-4 w-4 animate-spin opacity-50" />
@@ -568,6 +593,11 @@ function MessageBubble({
 function SidePanelChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
+  const [uploadedDoc, setUploadedDoc] = useState<{
+    name: string
+    content: string
+    type: (typeof SUPPORTED_UPLOAD_DOC_EXTENSIONS)[number]
+  } | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [apiKeys, setApiKeys] = useState({
     openrouterKey: "",
@@ -577,8 +607,10 @@ function SidePanelChat() {
   const [reasoningEnabled, setReasoningEnabled] = useState(false)
   const [pageContext, setPageContext] = useState<PageContext | null>(null)
   const [isReadingPage, setIsReadingPage] = useState(false)
+  const [isReadingDoc, setIsReadingDoc] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadApiKeys().then(setApiKeys)
@@ -641,13 +673,98 @@ function SidePanelChat() {
     }
   }, [isReadingPage])
 
+  const readUploadedDocument = useCallback(async (file: File) => {
+    if (file.size > MAX_UPLOAD_DOC_BYTES) {
+      throw new Error(`File too large. Maximum size is ${MAX_UPLOAD_DOC_BYTES / 1024 / 1024}MB.`)
+    }
+
+    const ext = getFileExtension(file.name)
+    if (!SUPPORTED_UPLOAD_DOC_EXTENSIONS.includes(ext as (typeof SUPPORTED_UPLOAD_DOC_EXTENSIONS)[number])) {
+      throw new Error("Unsupported file type. Please upload txt, md, doc, or docx.")
+    }
+
+    let content = ""
+
+    if (ext === ".txt" || ext === ".md") {
+      content = await file.text()
+    } else if (ext === ".docx") {
+      const buffer = await file.arrayBuffer()
+      const zip = await JSZip.loadAsync(buffer)
+      const documentXmlFile = zip.file("word/document.xml")
+      if (!documentXmlFile) {
+        throw new Error("This DOCX file cannot be parsed.")
+      }
+
+      const documentXml = await documentXmlFile.async("text")
+      const xmlDoc = new DOMParser().parseFromString(documentXml, "application/xml")
+      if (xmlDoc.querySelector("parsererror")) {
+        throw new Error("Failed to parse DOCX content.")
+      }
+
+      const paragraphs = Array.from(xmlDoc.getElementsByTagName("w:p"))
+        .map((p) =>
+          Array.from(p.getElementsByTagName("w:t"))
+            .map((node) => node.textContent || "")
+            .join("")
+        )
+        .filter(Boolean)
+      content = paragraphs.join("\n")
+    } else {
+      const buffer = await file.arrayBuffer()
+      content = new TextDecoder("windows-1252")
+        .decode(buffer)
+        .replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u00FF]/g, " ")
+    }
+
+    const normalized = content.replace(/\u0000/g, "").replace(/\n{3,}/g, "\n\n").trim()
+    if (!normalized) {
+      throw new Error("No readable text was found in this document.")
+    }
+
+    if (normalized.length > MAX_UPLOAD_DOC_CHARS) {
+      return `${normalized.slice(0, MAX_UPLOAD_DOC_CHARS)}\n\n...[truncated]`
+    }
+
+    return normalized
+  }, [])
+
+  const handleDocUpload = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      event.target.value = ""
+      if (!file || isLoading || isReadingDoc) return
+
+      setIsReadingDoc(true)
+      try {
+        const text = await readUploadedDocument(file)
+        setUploadedDoc({
+          name: file.name,
+          content: text,
+          type: getFileExtension(file.name) as (typeof SUPPORTED_UPLOAD_DOC_EXTENSIONS)[number]
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to read document."
+        console.error("Failed to read uploaded document:", err)
+        window.alert(message)
+      } finally {
+        setIsReadingDoc(false)
+      }
+    },
+    [isLoading, isReadingDoc, readUploadedDocument]
+  )
+
   const sendMessage = useCallback(async () => {
     const text = input.trim()
     if (!text || isLoading) return
 
-    const fullContent = pageContext
-      ? `\`\`\`\n<page_content>\n${pageContext.content}\n</page_content>\n\`\`\`\n${text}`
-      : text
+    const contexts: string[] = []
+    if (pageContext) {
+      contexts.push(`\`\`\`\npage content:\n${pageContext.content}\n\`\`\``)
+    }
+    if (uploadedDoc) {
+      contexts.push(`\`\`\`\nuploaded doc:\n${uploadedDoc.content}\n\`\`\``)
+    }
+    const fullContent = contexts.length ? `${contexts.join("\n\n")}\n\n${text}` : text
     const userMessage: Message = {
       role: "user",
       content: fullContent,
@@ -657,12 +774,18 @@ function SidePanelChat() {
           favicon: pageContext.favicon,
           url: pageContext.url
         }
+      }),
+      ...(uploadedDoc && {
+        uploadedDoc: {
+          name: uploadedDoc.name
+        }
       })
     }
     const updatedMessages = [...messages, userMessage]
     setMessages(updatedMessages)
     setInput("")
     setPageContext(null)
+    setUploadedDoc(null)
 
     if (!apiKeys.openrouterKey) {
       setMessages([
@@ -813,7 +936,7 @@ function SidePanelChat() {
       setIsLoading(false)
       requestAnimationFrame(() => inputRef.current?.focus())
     }
-  }, [input, isLoading, messages, apiKeys, reasoningEnabled, pageContext])
+  }, [input, isLoading, messages, apiKeys, reasoningEnabled, pageContext, uploadedDoc])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -969,6 +1092,21 @@ function SidePanelChat() {
               </button>
             </div>
           )}
+          {uploadedDoc && (
+            <div className="mb-2 flex w-full items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-xs text-primary">
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 truncate" title={uploadedDoc.name}>
+                {uploadedDoc.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => setUploadedDoc(null)}
+                className="ml-auto shrink-0 rounded-full p-0.5 hover:bg-primary/10"
+                title="Remove uploaded document">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
 
           <textarea
             ref={inputRef}
@@ -980,19 +1118,42 @@ function SidePanelChat() {
             rows={3}
             className="h-[120px] w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={SUPPORTED_UPLOAD_DOC_ACCEPT}
+            onChange={handleDocUpload}
+            className="hidden"
+          />
           <div className="mt-2 flex items-center justify-between rounded-xl border border-input/60 bg-muted/30 px-2.5 py-2">
-            <button
-              type="button"
-              onClick={() => setReasoningEnabled((v) => !v)}
-              disabled={isLoading}
-              className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
-                reasoningEnabled
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-transparent text-muted-foreground hover:bg-muted"
-              }`}>
-              <Brain className="h-3.5 w-3.5" />
-              Thinking
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setReasoningEnabled((v) => !v)}
+                disabled={isLoading}
+                className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                  reasoningEnabled
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-transparent text-muted-foreground hover:bg-muted"
+                }`}>
+                <Brain className="h-3.5 w-3.5" />
+                Thinking
+              </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || isReadingDoc}
+                className="h-7 w-7 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                title="Upload document context">
+                {isReadingDoc ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Paperclip className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
             <Button
               variant="ghost"
               size="icon"

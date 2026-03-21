@@ -13,6 +13,7 @@ import {
   Search,
   Send,
   Settings,
+  Command,
   User,
   X
 } from "lucide-react"
@@ -849,6 +850,14 @@ function SidePanelChat() {
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => chrome.tabs.create({ url: "chrome://extensions/shortcuts" })}
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            title="Keyboard Shortcuts">
+            <Command className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => chrome.runtime.openOptionsPage()}
             className="h-8 w-8 text-muted-foreground hover:text-foreground"
             title="Settings">
@@ -969,9 +978,9 @@ function SidePanelChat() {
             placeholder="Type a message..."
             disabled={isLoading}
             rows={3}
-            className="h-[120px] w-full resize-none rounded-xl border border-input bg-background px-3 pb-11 pt-2.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-[120px] w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           />
-          <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-between rounded-xl border border-input/60 bg-muted/30 px-2.5 py-2">
             <button
               type="button"
               onClick={() => setReasoningEnabled((v) => !v)}

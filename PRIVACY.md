@@ -1,6 +1,6 @@
 # Privacy Policy — Sidepanel Agent
 
-**Last updated:** March 15, 2026
+**Last updated:** March 21, 2026
 
 ## Overview
 
@@ -29,6 +29,16 @@ When the user sends a message, the conversation history (including user messages
 - Subject to [OpenRouter's privacy policy](https://openrouter.ai/privacy)
 - **Not** stored persistently by the extension — conversations exist only in memory and are lost when the side panel is closed
 
+### Local Document Uploads
+
+The extension allows users to upload one local document (`.txt`, `.md`, `.doc`, `.docx`) as optional context for a message. Document processing behavior:
+
+- The selected file is read locally in the browser extension context
+- Extracted text is attached to the user message only when the user explicitly sends that message
+- Document content is transmitted to `openrouter.ai` as part of the chat request when included by the user
+- Document files and extracted text are **not** sent to any server controlled by the extension developer
+- Uploaded document context is kept in memory only for the current side panel session unless removed earlier by the user
+
 ### Web Search and Page Extraction
 
 When the AI assistant uses the web search or page extraction tools, queries and URLs are sent directly from the user's browser to the Tavily API (`api.tavily.com`). This data is:
@@ -46,11 +56,14 @@ The extension requests the following Chrome permissions:
 
 - **`sidePanel`** — Required to display the chat interface in the browser's side panel.
 - **`storage`** — Required to persist user settings (API keys, model ID) across sessions using `chrome.storage.sync`.
+- **`activeTab`** — Required to access the currently active tab only after a user-initiated action (e.g., "Read Page") so the extension can capture page text as chat context.
+- **`scripting`** — Required to run a lightweight content-extraction script in the active tab when the user requests page context.
 - **`host_permissions` (`https://*/*`)** — Required to make API requests to OpenRouter (`openrouter.ai`) and Tavily (`api.tavily.com`) from the extension context.
 
 ## Data Retention
 
 - **Chat messages** are held in memory only and are not persisted. Closing the side panel or clicking "Clear Chat" permanently deletes all conversation data.
+- **Uploaded document context** is held in memory only for the active side panel session and is cleared after sending, removal, or panel close.
 - **API keys and settings** are stored in `chrome.storage.sync` until the user removes them or uninstalls the extension.
 
 ## Third-Party Services
